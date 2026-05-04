@@ -1,0 +1,32 @@
+{
+  "name": "Vixe Extras",
+  "short_name": "Vixe Extras",
+  "description": "Controle de pagamentos de extras e fixos do Vixe Bar",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fffdf2",
+  "theme_color": "#fff8d6",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "icons/logo-vixe.png",
+      "sizes": "225x225",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/logo-vixe.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/logo-vixe.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
