@@ -4,16 +4,17 @@
 
   const STORAGE_EMPLOYEES = 'vixe.employees.v1';
   const STORAGE_HISTORY = 'vixe.history.v1';
-  const SESSION_ENTRIES = 'vixe.session.v1';
+  const SESSION_KEY = 'vixe.session.v1';
   const SETORES = ['Bar', 'Caixa', 'Cozinha', 'Salão'];
 
   /* ---------- Estado ---------- */
   const state = {
     employees: load(STORAGE_EMPLOYEES, []),
     history: load(STORAGE_HISTORY, []),
-    session: loadSession(SESSION_ENTRIES, []),
+    session: loadSession(),
     view: 'insert',
-    selectedEmployeeId: null,
+    selectedEmployeeId: null,        // aba Inserir
+    selectedDiscountEmployeeId: null, // aba Descontos
     editingId: null,
   };
 
@@ -24,18 +25,17 @@
   function save(key, value) {
     localStorage.setItem(key, JSON.stringify(value));
   }
-  function loadSession(key, fallback) {
-    try { return JSON.parse(sessionStorage.getItem(key)) ?? fallback; }
-    catch { return fallback; }
+  function loadSession() {
+    try {
+      const v = JSON.parse(sessionStorage.getItem(SESSION_KEY));
+      if (v == null) return { entries: [], discounts: [] };
+      // Migração: formato antigo era um array de entries
+      if (Array.isArray(v)) return { entries: v, discounts: [] };
+      return { entries: v.entries ?? [], discounts: v.discounts ?? [] };
+    } catch { return { entries: [], discounts: [] }; }
   }
-  function saveSession(key, value) {
-    sessionStorage.setItem(key, JSON.stringify(value));
-  }
-
-  function persistAll() {
-    save(STORAGE_EMPLOYEES, state.employees);
-    save(STORAGE_HISTORY, state.history);
-    saveSession(SESSION_ENTRIES, state.session);
+  function saveSessionState() {
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(state.session));
   }
 
   function uid() {
@@ -43,7 +43,6 @@
   }
 
   /* ---------- Cálculo ---------- */
-  // Tabela base: chave = horas em pulos de 0.5
   const TABLE_EXTRA = {
     1: 25, 1.5: 30, 2: 40, 2.5: 45, 3: 55, 3.5: 60,
     4: 70, 4.5: 75, 5: 85, 5.5: 90, 6: 100,
@@ -53,12 +52,10 @@
     if (hours < 1) return 0;
     if (hours <= 6) return TABLE_EXTRA[hours] ?? 0;
     if (hours < 12) {
-      // 6h = 100, +5 a cada 30 min
       const halves = Math.round((hours - 6) * 2);
       return 100 + halves * 5;
     }
     if (hours === 12) return 200;
-    // > 12h
     const halves = Math.round((hours - 12) * 2);
     return 200 + halves * 5;
   }
@@ -66,9 +63,8 @@
   function computeHours(entryH, entryM, exitH, exitM) {
     let entryMin = entryH * 60 + entryM;
     let exitMin = exitH * 60 + exitM;
-    if (exitMin <= entryMin) exitMin += 24 * 60; // virou meia-noite
-    const minutes = exitMin - entryMin;
-    return minutes / 60;
+    if (exitMin <= entryMin) exitMin += 24 * 60;
+    return (exitMin - entryMin) / 60;
   }
 
   function formatHours(h) {
@@ -85,7 +81,7 @@
     return `$${v}`;
   }
 
-  /* ---------- Renderização principal ---------- */
+  /* ---------- Render principal ---------- */
   const $app = document.getElementById('app');
 
   function setView(view) {
@@ -94,12 +90,14 @@
       t.classList.toggle('active', t.dataset.view === view);
     });
     state.selectedEmployeeId = null;
+    state.selectedDiscountEmployeeId = null;
     state.editingId = null;
     render();
   }
 
   function render() {
     if (state.view === 'insert') renderInsert();
+    else if (state.view === 'discount') renderDiscount();
     else if (state.view === 'register') renderRegister();
     else if (state.view === 'history') renderHistory();
   }
@@ -147,18 +145,23 @@
         <h2 class="section-title">
           Sessão atual
           <span style="font-size:0.8rem;color:var(--muted);font-weight:500">
-            ${state.session.length} ${state.session.length === 1 ? 'registro' : 'registros'}
+            ${state.session.entries.length} ${state.session.entries.length === 1 ? 'registro' : 'registros'}${state.session.discounts.length ? ` · ${state.session.discounts.length} ${state.session.discounts.length === 1 ? 'desconto' : 'descontos'}` : ''}
           </span>
         </h2>
         ${renderSessionList()}
       </div>
 
-      <button id="btn-finalize" class="btn btn-info" ${state.session.length === 0 ? 'disabled' : ''}>
+      <button id="btn-finalize" class="btn btn-info" ${(state.session.entries.length === 0 && state.session.discounts.length === 0) ? 'disabled' : ''}>
         Finalizar e copiar
       </button>
     `;
 
-    setupAutocomplete();
+    setupAutocomplete('ac-input', 'ac-list', (emp) => {
+      state.selectedEmployeeId = emp ? emp.id : null;
+      updateFixoInfo();
+      updatePreview();
+    });
+
     document.getElementById('entry-h').addEventListener('change', updatePreview);
     document.getElementById('entry-m').addEventListener('change', updatePreview);
     document.getElementById('exit-h').addEventListener('change', updatePreview);
@@ -166,15 +169,19 @@
     document.getElementById('btn-add').addEventListener('click', addEntry);
     document.getElementById('btn-finalize').addEventListener('click', openFinalizeModal);
 
-    // Default times: 18:00 → 00:00
+    // Default: 18:00 → 00:00
     document.getElementById('entry-h').value = '18';
     document.getElementById('entry-m').value = '0';
     document.getElementById('exit-h').value = '0';
     document.getElementById('exit-m').value = '0';
 
-    state.session.forEach((_, idx) => {
+    state.session.entries.forEach((_, idx) => {
       const btn = document.querySelector(`[data-remove="${idx}"]`);
       if (btn) btn.addEventListener('click', () => removeEntry(idx));
+    });
+    state.session.discounts.forEach((_, idx) => {
+      const btn = document.querySelector(`[data-remove-disc="${idx}"]`);
+      if (btn) btn.addEventListener('click', () => removeDiscount(idx, 'insert'));
     });
   }
 
@@ -193,41 +200,204 @@
   }
 
   function renderSessionList() {
-    if (state.session.length === 0) {
+    const { entries, discounts } = state.session;
+    if (entries.length === 0 && discounts.length === 0) {
       return `<div class="empty">Nenhum registro nesta sessão.<br>Adicione registros acima.</div>`;
     }
 
-    const total = state.session.reduce((s, e) => s + e.value, 0);
+    let html = '';
 
+    if (entries.length > 0) {
+      html += '<ul class="entry-list">';
+      entries.forEach((entry, idx) => {
+        const emp = state.employees.find(e => e.id === entry.employeeId);
+        const name = emp ? emp.name : '(removido)';
+        const tag = emp?.type === 'fixo' ? ` · fixo${emp.setor ? ' / ' + emp.setor : ''}` : '';
+        html += `
+          <li class="entry-item">
+            <div class="entry-info">
+              <div class="entry-name">${escapeHtml(name)}${tag}</div>
+              <div class="entry-meta">
+                ${entry.entry}–${entry.exit} · ${formatHours(entry.hours)}
+              </div>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+              <span class="entry-value">${formatMoney(entry.value)}</span>
+              <button class="btn btn-sm btn-ghost" data-remove="${idx}">Remover</button>
+            </div>
+          </li>
+        `;
+      });
+      html += '</ul>';
+    }
+
+    if (discounts.length > 0) {
+      html += '<div class="discount-section-title">Descontos</div>';
+      html += '<ul class="entry-list">';
+      discounts.forEach((d, idx) => {
+        const emp = state.employees.find(e => e.id === d.employeeId);
+        const name = emp ? emp.name : '(removido)';
+        html += `
+          <li class="entry-item">
+            <div class="entry-info">
+              <div class="entry-name">${escapeHtml(name)}</div>
+              ${d.note ? `<div class="entry-meta">${escapeHtml(d.note)}</div>` : ''}
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+              <span class="entry-value negative">-${formatMoney(d.value)}</span>
+              <button class="btn btn-sm btn-ghost" data-remove-disc="${idx}">Remover</button>
+            </div>
+          </li>
+        `;
+      });
+      html += '</ul>';
+    }
+
+    const subtotal = entries.reduce((s, e) => s + e.value, 0);
+    const discountTotal = discounts.reduce((s, d) => s + d.value, 0);
+    const total = subtotal - discountTotal;
+
+    if (discounts.length > 0) {
+      html += `
+        <div class="session-summary">
+          <div class="session-summary-row">
+            <span>Subtotal</span>
+            <span>${formatMoney(subtotal)}</span>
+          </div>
+          <div class="session-summary-row" style="color:var(--danger-dark)">
+            <span>Descontos</span>
+            <span>-${formatMoney(discountTotal)}</span>
+          </div>
+          <div class="session-summary-row total">
+            <span>Total a receber</span>
+            <span>${formatMoney(total)}</span>
+          </div>
+        </div>
+      `;
+    } else {
+      html += `<div class="session-total"><span>Total</span><span>${formatMoney(total)}</span></div>`;
+    }
+
+    return html;
+  }
+
+  /* ---------- View: Descontos ---------- */
+  function renderDiscount() {
+    $app.innerHTML = `
+      <div class="card">
+        <h2 class="section-title">Adicionar desconto</h2>
+
+        <div class="field">
+          <label for="ac-input-disc">Funcionário</label>
+          <div class="autocomplete">
+            <input type="text" id="ac-input-disc" placeholder="Comece a digitar o nome…" autocomplete="off">
+            <div id="ac-list-disc" class="autocomplete-list" hidden></div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="disc-value">Valor a descontar ($)</label>
+          <input type="number" id="disc-value" min="1" step="1" placeholder="Ex.: 20" inputmode="numeric">
+        </div>
+
+        <div class="field">
+          <label for="disc-note">Motivo (opcional)</label>
+          <input type="text" id="disc-note" placeholder="Ex.: consumação, vale, adiantamento…">
+        </div>
+
+        <button id="btn-add-disc" class="btn btn-primary" disabled>Adicionar desconto</button>
+      </div>
+
+      <div class="card">
+        <h2 class="section-title">
+          Descontos da sessão
+          <span style="font-size:0.8rem;color:var(--muted);font-weight:500">
+            ${state.session.discounts.length} ${state.session.discounts.length === 1 ? 'desconto' : 'descontos'}
+          </span>
+        </h2>
+        ${renderDiscountListInDiscountTab()}
+      </div>
+    `;
+
+    setupAutocomplete('ac-input-disc', 'ac-list-disc', (emp) => {
+      state.selectedDiscountEmployeeId = emp ? emp.id : null;
+      updateDiscountButton();
+    });
+
+    document.getElementById('disc-value').addEventListener('input', updateDiscountButton);
+    document.getElementById('btn-add-disc').addEventListener('click', addDiscount);
+
+    state.session.discounts.forEach((_, idx) => {
+      const btn = document.querySelector(`[data-remove-disc-tab="${idx}"]`);
+      if (btn) btn.addEventListener('click', () => removeDiscount(idx, 'discount'));
+    });
+  }
+
+  function renderDiscountListInDiscountTab() {
+    const { discounts } = state.session;
+    if (discounts.length === 0) {
+      return `<div class="empty">Nenhum desconto nesta sessão.</div>`;
+    }
     let html = '<ul class="entry-list">';
-    state.session.forEach((entry, idx) => {
-      const emp = state.employees.find(e => e.id === entry.employeeId);
+    discounts.forEach((d, idx) => {
+      const emp = state.employees.find(e => e.id === d.employeeId);
       const name = emp ? emp.name : '(removido)';
-      const tag = emp?.type === 'fixo' ? ` · fixo${emp.setor ? ' / ' + emp.setor : ''}` : '';
       html += `
         <li class="entry-item">
           <div class="entry-info">
-            <div class="entry-name">${escapeHtml(name)}${tag}</div>
-            <div class="entry-meta">
-              ${entry.entry}–${entry.exit} · ${formatHours(entry.hours)}
-            </div>
+            <div class="entry-name">${escapeHtml(name)}</div>
+            ${d.note ? `<div class="entry-meta">${escapeHtml(d.note)}</div>` : ''}
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
-            <span class="entry-value">${formatMoney(entry.value)}</span>
-            <button class="btn btn-sm btn-ghost" data-remove="${idx}">Remover</button>
+            <span class="entry-value negative">-${formatMoney(d.value)}</span>
+            <button class="btn btn-sm btn-ghost" data-remove-disc-tab="${idx}">Remover</button>
           </div>
         </li>
       `;
     });
     html += '</ul>';
-    html += `<div class="session-total"><span>Total</span><span>${formatMoney(total)}</span></div>`;
+    const total = discounts.reduce((s, d) => s + d.value, 0);
+    html += `<div class="session-total" style="color:var(--danger-dark)">
+      <span>Total descontos</span><span>-${formatMoney(total)}</span>
+    </div>`;
     return html;
   }
 
-  /* ---------- Autocomplete ---------- */
-  function setupAutocomplete() {
-    const input = document.getElementById('ac-input');
-    const list = document.getElementById('ac-list');
+  function updateDiscountButton() {
+    const btn = document.getElementById('btn-add-disc');
+    const value = +document.getElementById('disc-value').value;
+    btn.disabled = !state.selectedDiscountEmployeeId || !value || value <= 0;
+  }
+
+  function addDiscount() {
+    const empId = state.selectedDiscountEmployeeId;
+    const value = +document.getElementById('disc-value').value;
+    const note = document.getElementById('disc-note').value.trim();
+    const emp = state.employees.find(e => e.id === empId);
+    if (!emp || !value || value <= 0) return;
+
+    state.session.discounts.push({
+      employeeId: emp.id,
+      value,
+      note: note || undefined,
+    });
+    saveSessionState();
+    state.selectedDiscountEmployeeId = null;
+    toast(`Desconto: ${emp.name} — -${formatMoney(value)}`);
+    renderDiscount();
+  }
+
+  function removeDiscount(idx, fromView) {
+    state.session.discounts.splice(idx, 1);
+    saveSessionState();
+    if (fromView === 'insert') renderInsert();
+    else renderDiscount();
+  }
+
+  /* ---------- Autocomplete reutilizável ---------- */
+  function setupAutocomplete(inputId, listId, onSelect) {
+    const input = document.getElementById(inputId);
+    const list = document.getElementById(listId);
     let highlighted = -1;
 
     function open() {
@@ -236,8 +406,8 @@
       if (items.length === 0) {
         list.innerHTML = `<div class="autocomplete-item" style="cursor:default;color:var(--muted)">Nenhum cadastro encontrado</div>`;
       } else {
-        list.innerHTML = items.map((e, i) => `
-          <div class="autocomplete-item" data-id="${e.id}" data-idx="${i}">
+        list.innerHTML = items.map((e) => `
+          <div class="autocomplete-item" data-id="${e.id}">
             <span>${escapeHtml(e.name)}</span>
             <span class="tag tag-${e.type}">${e.type === 'fixo' ? 'FIXO' : 'EXTRA'}</span>
           </div>
@@ -246,29 +416,21 @@
       list.hidden = false;
       highlighted = -1;
     }
-
-    function close() {
-      list.hidden = true;
-    }
+    function close() { list.hidden = true; }
 
     function selectItem(id) {
       const emp = state.employees.find(e => e.id === id);
       if (!emp) return;
-      state.selectedEmployeeId = id;
       input.value = emp.name;
       close();
-      updateFixoInfo();
-      updatePreview();
+      onSelect(emp);
     }
 
     input.addEventListener('focus', open);
     input.addEventListener('input', () => {
-      state.selectedEmployeeId = null;
-      updateFixoInfo();
-      updatePreview();
+      onSelect(null);
       open();
     });
-
     input.addEventListener('keydown', (ev) => {
       const items = list.querySelectorAll('.autocomplete-item[data-id]');
       if (ev.key === 'ArrowDown') {
@@ -292,20 +454,21 @@
       items.forEach((it, i) => it.classList.toggle('highlighted', i === highlighted));
       if (items[highlighted]) items[highlighted].scrollIntoView({ block: 'nearest' });
     });
-
     list.addEventListener('mousedown', (ev) => {
-      // mousedown to fire before blur
       const item = ev.target.closest('.autocomplete-item[data-id]');
       if (item) {
         ev.preventDefault();
         selectItem(item.dataset.id);
       }
     });
-
-    document.addEventListener('click', (ev) => {
-      if (!ev.target.closest('.autocomplete')) close();
-    });
   }
+
+  // Listener global pra fechar qualquer autocomplete ao clicar fora
+  document.addEventListener('click', (ev) => {
+    if (!ev.target.closest('.autocomplete')) {
+      document.querySelectorAll('.autocomplete-list').forEach(l => l.hidden = true);
+    }
+  });
 
   function filterEmployees(query) {
     if (!query) {
@@ -342,9 +505,7 @@
     const xh = document.getElementById('exit-h').value;
     const xm = document.getElementById('exit-m').value;
     if (eh === '' || em === '' || xh === '' || xm === '') return null;
-    return {
-      entryH: +eh, entryM: +em, exitH: +xh, exitM: +xm,
-    };
+    return { entryH: +eh, entryM: +em, exitH: +xh, exitM: +xm };
   }
 
   function updatePreview() {
@@ -358,14 +519,12 @@
       btn.disabled = true;
       return;
     }
-
     const hours = computeHours(t.entryH, t.entryM, t.exitH, t.exitM);
     if (hours <= 0) {
       preview.classList.add('hidden');
       btn.disabled = true;
       return;
     }
-
     const value = emp.type === 'fixo' ? emp.dobra : calculateExtraValue(hours);
     preview.classList.remove('hidden');
     preview.innerHTML = `${formatHours(hours)} trabalhadas · <span class="preview-value">${formatMoney(value)}</span>`;
@@ -377,34 +536,31 @@
     const emp = state.employees.find(e => e.id === state.selectedEmployeeId);
     if (!t || !emp) return;
     const hours = computeHours(t.entryH, t.entryM, t.exitH, t.exitM);
-    if (hours <= 0) {
-      toast('Horário inválido');
-      return;
-    }
+    if (hours <= 0) { toast('Horário inválido'); return; }
     const value = emp.type === 'fixo' ? emp.dobra : calculateExtraValue(hours);
-    state.session.push({
+    state.session.entries.push({
       employeeId: emp.id,
       entry: formatTime(t.entryH, t.entryM),
       exit: formatTime(t.exitH, t.exitM),
       hours,
       value,
     });
-    saveSession(SESSION_ENTRIES, state.session);
+    saveSessionState();
     state.selectedEmployeeId = null;
     toast(`Adicionado: ${emp.name} — ${formatMoney(value)}`);
     renderInsert();
   }
 
   function removeEntry(idx) {
-    state.session.splice(idx, 1);
-    saveSession(SESSION_ENTRIES, state.session);
+    state.session.entries.splice(idx, 1);
+    saveSessionState();
     renderInsert();
   }
 
   /* ---------- Finalizar ---------- */
   function openFinalizeModal() {
-    if (state.session.length === 0) return;
-    const text = buildSessionText(state.session, new Date());
+    if (state.session.entries.length === 0 && state.session.discounts.length === 0) return;
+    const text = buildSessionText(state.session.entries, state.session.discounts, new Date());
 
     const modal = document.createElement('div');
     modal.className = 'modal-backdrop';
@@ -423,30 +579,24 @@
       </div>
     `;
     document.body.appendChild(modal);
-
     const close = () => modal.remove();
 
     document.getElementById('btn-cancel').addEventListener('click', close);
     document.getElementById('btn-copy').addEventListener('click', async () => {
       const ta = document.getElementById('copy-text');
-      try {
-        await navigator.clipboard.writeText(ta.value);
-        toast('Texto copiado!');
-      } catch {
-        ta.select();
-        document.execCommand('copy');
-        toast('Texto copiado!');
-      }
+      try { await navigator.clipboard.writeText(ta.value); toast('Texto copiado!'); }
+      catch { ta.select(); document.execCommand('copy'); toast('Texto copiado!'); }
     });
     document.getElementById('btn-confirm').addEventListener('click', () => {
       const finalizedAt = Date.now();
       state.history.unshift({
         id: uid(),
         finalizedAt,
-        entries: [...state.session],
+        entries: [...state.session.entries],
+        discounts: [...state.session.discounts],
       });
-      state.session = [];
-      saveSession(SESSION_ENTRIES, state.session);
+      state.session = { entries: [], discounts: [] };
+      saveSessionState();
       save(STORAGE_HISTORY, state.history);
       close();
       toast('Sessão arquivada no histórico');
@@ -454,25 +604,36 @@
     });
   }
 
-  function groupSessionByEmployee(entries) {
+  function groupByEmployee(entries, discounts) {
     const groups = new Map();
-    for (const e of entries) {
-      const emp = state.employees.find(x => x.id === e.employeeId);
-      const key = e.employeeId;
-      if (!groups.has(key)) {
-        groups.set(key, { employee: emp, entries: [], total: 0 });
+    function ensure(id) {
+      if (!groups.has(id)) {
+        groups.set(id, {
+          employee: state.employees.find(x => x.id === id),
+          entries: [], discounts: [],
+          subtotal: 0, discountTotal: 0, total: 0,
+        });
       }
-      const g = groups.get(key);
-      g.entries.push(e);
-      g.total += e.value;
+      return groups.get(id);
     }
+    for (const e of entries) {
+      const g = ensure(e.employeeId);
+      g.entries.push(e);
+      g.subtotal += e.value;
+    }
+    for (const d of (discounts || [])) {
+      const g = ensure(d.employeeId);
+      g.discounts.push(d);
+      g.discountTotal += d.value;
+    }
+    groups.forEach(g => { g.total = g.subtotal - g.discountTotal; });
     return [...groups.values()];
   }
 
-  function buildSessionText(entries, date) {
+  function buildSessionText(entries, discounts, date) {
     const dateStr = date.toLocaleDateString('pt-BR');
     const timeStr = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const groups = groupSessionByEmployee(entries);
+    const groups = groupByEmployee(entries, discounts);
     const grandTotal = groups.reduce((s, g) => s + g.total, 0);
 
     let text = `*VIXE — Pagamentos ${dateStr} ${timeStr}*\n\n`;
@@ -486,6 +647,16 @@
       if (emp?.pix) text += `PIX: ${emp.pix}\n`;
       for (const e of g.entries) {
         text += `  • ${e.entry}–${e.exit} (${formatHours(e.hours)}) — ${formatMoney(e.value)}\n`;
+      }
+      if (g.discounts.length > 0) {
+        if (g.entries.length > 0) {
+          text += `  Subtotal: ${formatMoney(g.subtotal)}\n`;
+        }
+        for (const d of g.discounts) {
+          const noteStr = d.note ? ` (${d.note})` : '';
+          text += `  Desconto: -${formatMoney(d.value)}${noteStr}\n`;
+        }
+        text += `  Total a receber: *${formatMoney(g.total)}*\n`;
       }
       text += '\n';
     }
@@ -590,7 +761,6 @@
       </div>
     `;
     document.body.appendChild(modal);
-
     const close = () => modal.remove();
 
     function updateRadioClasses() {
@@ -615,10 +785,7 @@
       const type = document.querySelector('input[name="emp-type"]:checked').value;
       const pix = document.getElementById('emp-pix').value.trim();
 
-      if (!name) {
-        toast('Informe o nome completo');
-        return;
-      }
+      if (!name) { toast('Informe o nome completo'); return; }
 
       const data = { name, type, pix };
       if (type === 'fixo') {
@@ -632,7 +799,6 @@
 
       if (isEdit) {
         Object.assign(emp, data);
-        // limpa campos de fixo se virou extra
         if (type !== 'fixo') { delete emp.dobra; delete emp.setor; }
       } else {
         state.employees.push({ id: uid(), ...data });
@@ -680,13 +846,9 @@
       });
       if (copyEl) copyEl.addEventListener('click', async (ev) => {
         ev.stopPropagation();
-        const text = buildSessionText(h.entries, new Date(h.finalizedAt));
-        try {
-          await navigator.clipboard.writeText(text);
-          toast('Texto copiado!');
-        } catch {
-          toast('Não foi possível copiar');
-        }
+        const text = buildSessionText(h.entries, h.discounts || [], new Date(h.finalizedAt));
+        try { await navigator.clipboard.writeText(text); toast('Texto copiado!'); }
+        catch { toast('Não foi possível copiar'); }
       });
     });
   }
@@ -695,8 +857,9 @@
     const date = new Date(h.finalizedAt);
     const dateStr = date.toLocaleDateString('pt-BR') + ' ' +
       date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const total = h.entries.reduce((s, e) => s + e.value, 0);
-    const groups = groupSessionByEmployee(h.entries);
+    const discounts = h.discounts || [];
+    const groups = groupByEmployee(h.entries, discounts);
+    const total = groups.reduce((s, g) => s + g.total, 0);
 
     let body = '';
     for (const g of groups) {
@@ -717,17 +880,33 @@
             <span>${formatMoney(e.value)}</span>
           </div>
         `).join('')}
+        ${g.discounts.length > 0 && g.entries.length > 0 ? `
+          <div class="history-shift" style="font-style:italic;color:var(--muted)">
+            <span>Subtotal</span><span>${formatMoney(g.subtotal)}</span>
+          </div>
+        ` : ''}
+        ${g.discounts.map(d => `
+          <div class="history-discount">
+            <span>Desconto${d.note ? ' · ' + escapeHtml(d.note) : ''}</span>
+            <span>-${formatMoney(d.value)}</span>
+          </div>
+        `).join('')}
       `;
     }
+
+    const numEntries = h.entries.length;
+    const numDiscounts = discounts.length;
+    const subtitle =
+      `${numEntries} ${numEntries === 1 ? 'registro' : 'registros'}` +
+      (numDiscounts ? ` · ${numDiscounts} ${numDiscounts === 1 ? 'desconto' : 'descontos'}` : '') +
+      ` · ${groups.length} ${groups.length === 1 ? 'pessoa' : 'pessoas'}`;
 
     return `
       <div class="history-item" id="h-${h.id}">
         <div class="history-header" data-toggle="${h.id}">
           <div>
             <div class="history-date">${dateStr}</div>
-            <div style="font-size:0.8rem;color:var(--muted)">
-              ${h.entries.length} ${h.entries.length === 1 ? 'registro' : 'registros'} · ${groups.length} ${groups.length === 1 ? 'pessoa' : 'pessoas'}
-            </div>
+            <div style="font-size:0.8rem;color:var(--muted)">${subtitle}</div>
           </div>
           <div style="display:flex;align-items:center;gap:6px">
             <span class="history-total">${formatMoney(total)}</span>
@@ -751,9 +930,7 @@
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[c]));
   }
-  function escapeAttr(s) {
-    return escapeHtml(s);
-  }
+  function escapeAttr(s) { return escapeHtml(s); }
 
   let toastTimer;
   function toast(msg) {
