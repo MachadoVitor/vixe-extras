@@ -190,6 +190,7 @@ label {
 
 input[type="text"],
 input[type="number"],
+input[type="date"],
 select {
   width: 100%;
   padding: 13px 14px;
@@ -307,6 +308,138 @@ button:disabled {
   opacity: 0.40;
   cursor: not-allowed;
   filter: grayscale(0.4);
+}
+
+/* ============== PERIOD BAR + DAY NAVIGATOR ============== */
+.period-intro {
+  margin: 0 0 14px;
+  color: var(--text-soft);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.period-card {
+  padding: 14px 16px;
+}
+
+.period-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.period-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.period-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.period-info strong {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.day-navigator {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+  overflow-x: auto;
+  padding: 2px 0 4px;
+  scrollbar-width: thin;
+}
+.day-navigator::-webkit-scrollbar { height: 4px; }
+.day-navigator::-webkit-scrollbar-thumb { background: rgba(120, 130, 160, 0.25); border-radius: 2px; }
+
+.day-chip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(120, 130, 160, 0.15);
+  border-radius: 100px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  letter-spacing: -0.01em;
+}
+.day-chip:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+.day-chip.active {
+  background: linear-gradient(180deg, #6cd0ff 0%, var(--accent-blue) 100%);
+  border-color: var(--accent-blue-dark);
+  color: white;
+  box-shadow: 0 4px 12px rgba(74, 184, 255, 0.30);
+}
+.day-chip-count {
+  background: rgba(255, 255, 255, 0.35);
+  color: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 100px;
+  min-width: 20px;
+  text-align: center;
+}
+.day-chip:not(.active) .day-chip-count {
+  background: rgba(74, 184, 255, 0.18);
+  color: var(--accent-blue-dark);
+}
+
+.current-day-tag {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent-blue-dark);
+  background: rgba(74, 184, 255, 0.14);
+  padding: 4px 10px;
+  border-radius: 100px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.session-day-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 14px 0 4px;
+  padding: 8px 12px;
+  background: rgba(120, 130, 160, 0.08);
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.session-day-header:first-child { margin-top: 0; }
+.session-day-total {
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-mint-dark);
+}
+
+.history-day-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 8px 0 2px 12px;
 }
 
 /* ============== AUTOCOMPLETE ============== */
@@ -455,6 +588,62 @@ button:disabled {
   color: var(--accent-mint-dark);
 }
 .fixo-info.hidden { display: none; }
+
+/* ============== REGISTER ACTIONS (export/import) ============== */
+.register-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.register-actions > .btn {
+  flex: 1;
+  width: auto;
+  padding: 10px 12px;
+  font-size: 0.88rem;
+  border-radius: var(--radius-md);
+}
+
+.import-summary {
+  background: rgba(120, 130, 160, 0.08);
+  border: 1px solid rgba(120, 130, 160, 0.12);
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--text-soft);
+}
+
+.import-replace {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 6px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(120, 130, 160, 0.12);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--text-soft);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.import-replace input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent-blue);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.import-hint {
+  margin: 6px 2px 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
 
 /* ============== EMPLOYEE CARDS ============== */
 .employee-card {
