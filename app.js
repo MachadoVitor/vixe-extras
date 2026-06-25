@@ -152,7 +152,8 @@
   }
 
   function formatMoney(v) {
-    return `$${v}`;
+    const n = Math.round((Number(v) + Number.EPSILON) * 100) / 100;
+    return Number.isInteger(n) ? `$${n}` : `$${n.toFixed(2)}`;
   }
 
   /* ---------- Render principal ---------- */
@@ -606,7 +607,7 @@
 
         <div class="field">
           <label for="disc-value">Valor a descontar ($)</label>
-          <input type="number" id="disc-value" min="1" step="1" placeholder="Ex.: 20" inputmode="numeric">
+          <input type="text" id="disc-value" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="Ex.: 20">
         </div>
 
         <div class="field">
@@ -1172,7 +1173,7 @@
         <div id="emp-fixo-fields" class="fixo-fields" ${emp?.type === 'fixo' ? '' : 'hidden'}>
           <div class="field">
             <label for="emp-dobra">Valor da dobra ($)</label>
-            <input type="number" id="emp-dobra" min="0" step="1" placeholder="Ex.: 200" value="${emp?.dobra ?? ''}">
+            <input type="text" id="emp-dobra" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="Ex.: 200" value="${emp?.dobra ?? ''}">
           </div>
           <div class="field">
             <label for="emp-setor">Setor</label>

@@ -1,4 +1,4 @@
-const CACHE = 'vixe-extras-v5';
+const CACHE = 'vixe-extras-v7';
 const ASSETS = [
   './',
   './index.html',
